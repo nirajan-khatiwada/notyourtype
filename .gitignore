@@ -1,0 +1,21 @@
+# Python bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment & secrets
+.env
+.venv/
+venv/
+
+# Temporary media & local project build outputs
+frames/
+keyframes/
+clips/
+*.tmp*
+review.jpg
+qc.jpg
+delama_selfcheck.png
+selfcheck_*.png
+selfcheck_*.mp4

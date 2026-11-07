@@ -1,0 +1,2 @@
+look: flat_daylight
+Hand-drawn digital 2D cel-shaded cartoon animation with clean Flash/ToonBoom keyframe aesthetics. Bold, clean, uniform black ink outlines with crisp vector-like edges. Flat, vibrant solid colors with minimal 1-step hard-edge cel-shading, zero 3D volumetric lighting, zero photorealistic textures, zero gradients. Simple, uncluttered 2D illustrated backgrounds with flat pastel color planes (soft cream, sky blue, muted mint) and clean black ink line art that maintain clear figure-ground separation and keep visual focus on the foreground character.
