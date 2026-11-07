@@ -1,7 +1,0 @@
-cue	clip	note	continuity
-01.0	clips/clean/s01.mp4	Opening statement to viewer	new_scene
-02.0	clips/clean/s02.mp4	Frame-chained reaction from Clip 01	chain
-03.0	clips/clean/s03.mp4	Hard cut to secondary character response	new_scene
-04.0	clips/clean/s04.mp4	Cut back to protagonist animated gesture	new_scene
-05.0	clips/clean/s05.mp4	Frame-chained deadpan beat from Clip 04	chain
-06.0	clips/clean/s06.mp4	Closing interpolated pose transition	interp

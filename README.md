@@ -56,20 +56,22 @@ You simply reply in one line, for example:
 
 ---
 
-## 3. What Happens Next (Automated 4-Stage Checkpoints)
+## 3. What Happens Next (Dynamic Scene → Shot Generation Per Project)
 
-Once you give the **Title, Language, and Length**, the agent creates your project folder under `~/Storytime2D/<slug>/` and runs the pipeline:
+Every time you give a **Title, Language, and Length**, the agent creates a new project folder (`~/Storytime2D/<project-slug>/`) and **dynamically generates the Scenes (`SCENES.tsv`) and Shots (`SHOTS.tsv`) specifically for your story**:
 
-| Stage | What the Agent Does | What You Do |
+| Stage | What the Agent Creates Dynamically for Your Project | What You Do |
 | :--- | :--- | :--- |
-| **1. Script & Clip Plan** | Writes `SCRIPT.md` and calculates the exact number of `6s`–`10s` clips needed for your target length (since Flow's max clip length is 10s: e.g., 1 min = ten 6s clips or six 10s clips). | **Approve the script** (say `"OK"` or ask for edits). |
-| **2. Master Character Anchor** | Locks `CHARACTER_BIBLE.json` and generates the **Master Character Reference Image** (`img/ref_protagonist.png`) via Flow MCP (`flow-text-to-image`) with bold black ink outlines, flat solid colors, and zero watermark. | **Confirm the character look** (or proceed automatically). |
-| **3. Frame-Chained Video Clips** | Generates each `6s`–`10s` animated clip sequentially via Flow MCP (`flow_generate`):<br>• **Clip 1:** Animated from the Master Character Reference + Scene 1 starting keyframe.<br>• **Clip `N`:** Trims the final 3–5 frames of Clip `N-1`, extracts `frames/chain/s{N-1}_last.png`, and passes it + `img/ref_protagonist.png` into Flow MCP so the character never morphs. | Agent runs this automatically and checks `review.jpg`. |
+| **1. Script & Dynamic Scene/Shot Plan** | • Writes `SCRIPT.md` for your topic and language.<br>• Creates `SCENES.tsv` breaking the story into scenes.<br>• Creates `SHOTS.tsv` breaking **each scene** into `6s`–`10s` animated video shots (since Flow's max per clip is 10s):<br>  - **Shot 1 of each Scene (`new_scene`)**: Starts the scene.<br>  - **Shots 2, 3... of the same Scene (`chain`)**: Continues seamlessly from the previous shot's last frame. | **Approve the script** (say `"OK"` or ask for edits). |
+| **2. Master Character Anchor** | Creates `CHARACTER_BIBLE.json` for your story's characters and generates each **Master Character Reference Image** (`img/ref_<char>.png`) via Flow MCP (`flow-text-to-image`) with bold black ink outlines, flat solid colors, and zero watermark. | **Confirm the character look** (or proceed automatically). |
+| **3. Frame-Chained Video Clips** | Generates each `6s`–`10s` shot sequentially via Flow MCP (`flow_generate`):<br>• **First Shot of a Scene (`new_scene`)**: Generates the scene starting keyframe (`keyframes/sNN_start.png`) anchored to `img/ref_<char>.png`, then animates it into a continuous 2D video clip (`clips/raw/sNN.mp4`).<br>• **Continuation Shot `N` in that Scene (`chain`)**: Trims the final 3–5 frames of Shot `N-1`, extracts `frames/chain/s{N-1:02d}_last.png`, and passes it + `img/ref_<char>.png` into Flow MCP so the character and scene continue without morphing. | Agent runs this automatically and checks `review.jpg`. |
 | **4. Stitch & Final MP4** | Cleans corner watermarks (`delama_video.py`), normalizes all clips to `1920x1080` (`16:9`, `30fps`), stitches them seamlessly via FFmpeg (`assemble.py`), verifies `qc.jpg`, and gives you the final `.mp4` path. | **Watch your finished `.mp4` video!** |
 
 ---
 
-## 4. Folder Structure
+## 4. Skill Repository Structure
+
+*(Note: `SCRIPT.md`, `SCENES.tsv`, `SHOTS.tsv`, and `mcp_jobs.json` are NOT stored in the skill repo—they are created dynamically inside `~/Storytime2D/<project-slug>/` for each new video you make.)*
 
 ```text
 not-your-type/
@@ -80,12 +82,10 @@ not-your-type/
 ├── SETUP_STATUS.md               # Machine verification status
 ├── prompts/                      # Hardcoded 2D cel-shaded style lock, anti-morphing guardrails & JSON schemas
 ├── looks/                        # Reusable 2D background environment palettes
-├── scripts/                      # Standalone Python + FFmpeg pipeline scripts
-│   ├── character_bible.py        # Character Bible & Master Reference Anchor generator
-│   ├── frame_chain.py            # Anti-morphing tail trimmer (3-5 frames) & last-clean-frame extractor
-│   ├── video_clips.py            # Sequential frame-chained Flow MCP video generator
-│   ├── delama_video.py           # Image & video corner watermark remover
-│   └── assemble.py               # 1080p clip normalizer, FFmpeg stitcher & 3-point QC sheet builder
-└── example/
-    └── sample_sequence/          # Complete example project with pre-validated SHOTS.tsv & mcp_jobs.json
+└── scripts/                      # Standalone Python + FFmpeg pipeline scripts
+    ├── character_bible.py        # Character Bible & Master Reference Anchor generator
+    ├── frame_chain.py            # Anti-morphing tail trimmer (3-5 frames) & last-clean-frame extractor
+    ├── video_clips.py            # Dynamic Scene->Shot validator & frame-chained Flow MCP video generator
+    ├── delama_video.py           # Image & video corner watermark remover
+    └── assemble.py               # 1080p clip normalizer, FFmpeg stitcher & 3-point QC sheet builder
 ```

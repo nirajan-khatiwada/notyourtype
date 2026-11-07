@@ -1,7 +1,0 @@
-id	char	continuity	duration	action	expression	setting	camera
-01	protagonist	new_scene	6	stands facing the camera and gestures expressively with both 4-finger cartoon hands while speaking directly to the viewer	animated_speaking	Simple 2D illustrated room interior with a wooden desk and flat warm-cream background wall	Medium 2D cartoon shot, eye level, static framing
-02	protagonist	chain	6	places both hands on the sides of the head in sudden realization while looking down at the desk	wide_eyed_shock	Same 2D illustrated room interior with wooden desk and flat warm-cream wall	Medium close-up 2D shot, quick push-in
-03	secondary_character	new_scene	6	crosses both arms and nods with a knowing look while speaking in response	confident_grin	Simple 2D illustrated room with flat pastel-blue wall and minimal background shelf	Medium 2D cartoon shot, eye level
-04	protagonist	new_scene	6	points one hand emphatically toward the desk while speaking rapidly	comedic_rage	Simple 2D illustrated room interior with wooden desk and flat warm-cream wall	Medium 2D cartoon shot, eye level
-05	protagonist	chain	6	slumps shoulders forward and lets out a long breath while resting both hands on the desk	deadpan_stare	Same 2D illustrated room interior with wooden desk and flat warm-cream wall	Medium 2D cartoon shot, eye level
-06	protagonist	interp	6	raises one thumb toward the chest while holding a calm posture facing the camera	confident_grin	Simple 2D illustrated exterior walkway with flat light-blue sky background	Medium 2D cartoon shot, eye level

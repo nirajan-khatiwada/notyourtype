@@ -1,23 +1,22 @@
-"""Step 2 & 3 — Frame-Chained Continuous 2D Video Generator via Google Flow MCP.
+"""Step 2 & 3 — Dynamic Scene-to-Shot Planner & Frame-Chained Continuous 2D Video Generator via Google Flow MCP.
 
-Reads SHOTS.tsv, CHARACTER_BIBLE.json, and STYLE.txt to execute the 2D Cel-Shaded Storytime
-Continuous Video Generation & Reference-Chaining Pipeline exclusively through Google Flow MCP:
-  - Shot 1 (or `new_scene` hard cut):
-      1. Generates an Anchor-Locked Starting Keyframe (`keyframes/sNN_start.png`) conditioned on
-         the Master Character Reference (`img/ref_<char>.png`) via Flow MCP (`flow-image-to-image`).
-      2. Generates a continuous 2D animated video clip (`clips/raw/sNN.mp4`) conditioned on
-         `[keyframes/sNN_start.png, img/ref_<char>.png]` via Flow MCP (`flow-ingredients-to-video`
-         or `flow-frame-to-video`).
-      3. Inspects & trims the final 3-5 frames (`frame_chain.py`) to produce `clips/clean/sNN.mp4`
-         and extracts the last clean frame `frames/chain/sNN_last.png`.
-  - Shot N (`continuity = chain`):
-      1. Passes `frames/chain/s{N-1:02d}_last.png` (First-Frame Continuity Reference) AND
-         `img/ref_<char>.png` (Master Character Identity Anchor) into Google Flow MCP
-         (`flow-ingredients-to-video` or `flow-frame-to-video`) to generate Clip N without character drift.
-      2. Inspects & trims Clip N and extracts `frames/chain/sNN_last.png` for Clip N+1.
-
-SHOTS.tsv columns (tab-separated):
-    id  char  continuity  duration  action  expression  setting  camera
+How Scenes and Shots work dynamically for each project:
+    1. When a user starts a new video project (Title, Language, Length), the agent creates a dedicated
+       project folder (`~/Storytime2D/<project-slug>/`) and writes:
+       - `SCRIPT.md`: The story script.
+       - `CHARACTER_BIBLE.json`: The characters dynamically defined for this story.
+       - `SCENES.tsv` (`scene_id, setting, duration_sec, summary`): The narrative scenes of the story.
+       - `SHOTS.tsv` (`id, scene_id, char, continuity, duration, action, expression, setting, camera`):
+         Because Google Flow generates a maximum of 10 seconds per video clip (4s, 6s, 8s, or 10s),
+         each Scene in `SCENES.tsv` is broken into one or more sequential 4s-10s Shots in `SHOTS.tsv`:
+           * First Shot of a Scene (`continuity = new_scene`):
+             Generates an Anchor-Locked Starting Keyframe (`keyframes/sNN_start.png`) conditioned on
+             `img/ref_<char>.png`, then animates it into a continuous 2D video clip (`clips/raw/sNN.mp4`).
+           * Continuation Shots within the SAME Scene (`continuity = chain`):
+             Inspects & trims the final 3-5 frames of Shot N-1 (`frame_chain.py`), extracts the last
+             clean frame (`frames/chain/s{N-1:02d}_last.png`), and passes BOTH `frames/chain/s{N-1:02d}_last.png`
+             and `img/ref_<char>.png` into Google Flow MCP (`flow-ingredients-to-video` or `flow-frame-to-video`)
+             so the scene continues seamlessly without character drift or morphing.
 
 Commands (run from the project folder):
     python <skill>/scripts/video_clips.py validate
@@ -26,6 +25,7 @@ Commands (run from the project folder):
     python <skill>/scripts/video_clips.py chain [ids...] [--model omni-flash] [--wait] [--dry]
     python <skill>/scripts/video_clips.py review
     python <skill>/scripts/video_clips.py pick
+    python <skill>/scripts/video_clips.py --selfcheck
 """
 import argparse
 import csv
@@ -42,6 +42,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from character_bible import (  # noqa: E402
     IMAGE_MODEL,
+    cmd_init,
     format_character_spec,
     load_bible,
     negative_guardrails,
@@ -91,7 +92,7 @@ def parse_id_filter(raw_args: list) -> set:
 
 def load_shots(path: str = "SHOTS.tsv") -> list:
     if not os.path.exists(path):
-        sys.exit(f"Missing {path} in current project folder.")
+        sys.exit(f"Missing {path} in current project folder. Create SHOTS.tsv for this project's scenes first.")
     with open(path, encoding="utf-8-sig") as f:
         lines = [ln for ln in f if ln.strip() and not ln.lstrip().startswith("#")]
     return list(csv.DictReader(lines, delimiter="\t"))
@@ -158,6 +159,7 @@ def build_video_prompt(row: dict, bible: dict) -> str:
 
 def build_video_mcp_call(row: dict, bible: dict, video_model: str = VIDEO_MODEL) -> dict:
     sid = int(row["id"])
+    scene_id = str(row.get("scene_id", "1")).strip() or "1"
     cid = row["char"].strip()
     cont = row["continuity"].strip().lower()
     dur = str(row.get("duration", "6")).strip() or "6"
@@ -192,6 +194,7 @@ def build_video_mcp_call(row: dict, bible: dict, video_model: str = VIDEO_MODEL)
 
     return {
         "shot_id": sid,
+        "scene_id": scene_id,
         "continuity": cont,
         "ServerName": "flow-connector",
         "ToolName": "flow_generate",
@@ -224,12 +227,14 @@ def cmd_validate(_args):
     errors = []
     warnings = []
     prev_id = 0
+    prev_scene = None
     for idx, r in enumerate(shots, 1):
         sid = int(r["id"])
         if sid != prev_id + 1:
             warnings.append(f"Row {idx}: shot id {sid:02d} is not sequential after {prev_id:02d}")
         prev_id = sid
 
+        scene_id = str(r.get("scene_id", "")).strip()
         cid = r["char"].strip()
         if cid not in bible["characters"]:
             errors.append(f"Shot {sid:02d}: unknown character '{cid}' (not in CHARACTER_BIBLE.json)")
@@ -239,6 +244,13 @@ def cmd_validate(_args):
             errors.append(f"Shot {sid:02d}: invalid continuity '{cont}' (must be one of {sorted(VALID_CONTINUITY)})")
         if sid == 1 and cont == "chain":
             errors.append("Shot 01 cannot have continuity='chain' (Shot 01 has no previous clip N-1; use 'new_scene')")
+        if scene_id and prev_scene is not None and scene_id != prev_scene and cont == "chain":
+            warnings.append(
+                f"Shot {sid:02d} starts a new scene (scene_id={scene_id} after {prev_scene}) "
+                f"but uses continuity='chain'. Consider continuity='new_scene' for hard scene cuts."
+            )
+        if scene_id:
+            prev_scene = scene_id
 
         dur = str(r["duration"]).strip()
         if dur not in VALID_DURATIONS:
@@ -248,7 +260,7 @@ def cmd_validate(_args):
                     errors.append(
                         f"Shot {sid:02d}: duration '{dur}s' exceeds Google Flow's hard 10-second maximum per clip! "
                         f"Allowed values are {sorted(VALID_DURATIONS)} seconds. "
-                        f"To animate a {dur}s sequence, split it into multiple 6s or 8s rows with continuity='chain'."
+                        f"To animate a {dur}s scene, split it into multiple 6s or 8s shots with continuity='chain'."
                     )
                 else:
                     errors.append(
@@ -295,13 +307,14 @@ def cmd_validate(_args):
         sys.exit(1)
 
     total_sec = sum(int(r["duration"]) for r in shots)
+    scenes_seen = {str(r.get("scene_id", i)).strip() for i, r in enumerate(shots, 1)}
     chain_count = sum(1 for r in shots if r["continuity"].strip().lower() == "chain")
     new_count = sum(1 for r in shots if r["continuity"].strip().lower() == "new_scene")
     interp_count = sum(1 for r in shots if r["continuity"].strip().lower() == "interp")
     print(
-        f"SHOTS.tsv validated: {len(shots)} continuous 2D video clips ({total_sec}s raw duration; "
-        f"{new_count} anchor-locked new scenes, {chain_count} frame-chained continuations, "
-        f"{interp_count} interpolated transitions)."
+        f"SHOTS.tsv validated: {len(shots)} continuous 2D video shots across {len(scenes_seen)} scene(s) "
+        f"({total_sec}s total duration; {new_count} anchor-locked scene starts, "
+        f"{chain_count} frame-chained continuations, {interp_count} interpolated transitions)."
     )
 
 
@@ -317,6 +330,7 @@ def cmd_export_mcp(args):
     }
     for r in shots:
         sid = int(r["id"])
+        scene_id = str(r.get("scene_id", "1")).strip() or "1"
         cid = r["char"].strip()
         cont = r["continuity"].strip().lower()
         ref_anchor = bible["characters"][cid].get("reference_image", f"img/ref_{cid}.png")
@@ -325,6 +339,7 @@ def cmd_export_mcp(args):
             manifest["keyframes"].append(
                 {
                     "shot_id": sid,
+                    "scene_id": scene_id,
                     "target_path": f"keyframes/s{sid:02d}_start.png",
                     "ServerName": "flow-connector",
                     "ToolName": "flow_generate",
@@ -420,7 +435,7 @@ def cmd_chain(args):
         mcp_args = call_spec["Arguments"]
 
         if args.dry:
-            print(f"# Shot {sid:02d} ({call_spec['continuity']}) -> clips/raw/s{sid:02d}.mp4")
+            print(f"# Shot {sid:02d} (scene {call_spec['scene_id']}, {call_spec['continuity']}) -> clips/raw/s{sid:02d}.mp4")
             print(json.dumps({k: call_spec[k] for k in ("ServerName", "ToolName", "Arguments")}, indent=2))
             count += 1
             continue
@@ -432,7 +447,7 @@ def cmd_chain(args):
                     f"Run previous shots first (or run `video_clips.py keyframes` for new_scene shots)."
                 )
 
-        print(f"Submitting Shot {sid:02d} [{call_spec['continuity']}] via Flow MCP {mcp_args['mode']} ({args.model})...")
+        print(f"Submitting Shot {sid:02d} [scene {call_spec['scene_id']}, {call_spec['continuity']}] via Flow MCP {mcp_args['mode']} ({args.model})...")
         dl_path = _execute_flow_mcp_job(mcp_args, index=sid, wait=args.wait)
         raw_target = f"clips/raw/s{sid:02d}.mp4"
         if dl_path and os.path.exists(dl_path):
@@ -538,8 +553,43 @@ def cmd_pick(_args):
     )
 
 
+def selfcheck():
+    """Verify dynamic Scene -> Shot validation and Flow MCP manifest generation in a temporary project."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="s2d_shots_test_") as tmp:
+        old = os.getcwd()
+        os.chdir(tmp)
+        try:
+            cmd_init(argparse.Namespace(look="flat_daylight", force=True))
+            # Dynamically create a 2-scene, 3-shot SHOTS.tsv (Scene 1 has 2 chained shots; Scene 2 has 1 new_scene shot)
+            shots_content = (
+                "id\tscene_id\tchar\tcontinuity\tduration\taction\texpression\tsetting\tcamera\n"
+                "01\t1\tprotagonist\tnew_scene\t6\tstands facing the camera and gestures with both hands while speaking\tanimated_speaking\tSimple 2D room interior with flat warm-cream wall\tMedium 2D shot\n"
+                "02\t1\tprotagonist\tchain\t6\tplaces both hands on head in sudden surprise\twide_eyed_shock\tSame 2D room interior with flat warm-cream wall\tMedium close-up 2D shot\n"
+                "03\t2\tsecondary_character\tnew_scene\t6\tcrosses both arms and nods calmly while responding\tconfident_grin\tSimple 2D room with flat light-blue background wall\tMedium 2D shot\n"
+            )
+            with open("SHOTS.tsv", "w", encoding="utf-8") as f:
+                f.write(shots_content)
+            cmd_validate(argparse.Namespace())
+            cmd_export_mcp(argparse.Namespace(model="omni-flash", out="mcp_jobs.json"))
+            assert os.path.exists("mcp_jobs.json")
+            data = json.load(open("mcp_jobs.json", encoding="utf-8"))
+            assert len(data["keyframes"]) == 2
+            assert len(data["video_clips"]) == 3
+            assert data["video_clips"][1]["Arguments"]["image_paths"] == [
+                "frames/chain/s01_last.png",
+                "img/ref_protagonist.png",
+            ]
+            print("[video_clips selfcheck] PASS: Dynamic Scene->Shot validation and Flow MCP chaining verified.")
+        finally:
+            os.chdir(old)
+
+
 def main():
-    ap = argparse.ArgumentParser(description="Frame-Chained Continuous 2D Video Generator via Google Flow MCP.")
+    if "--selfcheck" in sys.argv:
+        return selfcheck()
+    ap = argparse.ArgumentParser(description="Dynamic Scene-to-Shot Frame-Chained 2D Video Generator via Flow MCP.")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p_val = sub.add_parser("validate", help="Validate SHOTS.tsv anti-morphing scope and continuity chain")
