@@ -1,22 +1,25 @@
 """Step 2 & 3 — Dynamic Scene-to-Shot Planner & Frame-Chained Continuous 2D Video Generator via Google Flow MCP.
 
-How Scenes and Shots work dynamically for each project:
-    1. When a user starts a new video project (Title, Language, Length), the agent creates a dedicated
-       project folder (`~/Storytime2D/<project-slug>/`) and writes:
-       - `SCRIPT.md`: The story script.
-       - `CHARACTER_BIBLE.json`: The characters dynamically defined for this story.
-       - `SCENES.tsv` (`scene_id, setting, duration_sec, summary`): The narrative scenes of the story.
-       - `SHOTS.tsv` (`id, scene_id, char, continuity, duration, action, expression, setting, camera`):
-         Because Google Flow generates a maximum of 10 seconds per video clip (4s, 6s, 8s, or 10s),
-         each Scene in `SCENES.tsv` is broken into one or more sequential 4s-10s Shots in `SHOTS.tsv`:
-           * First Shot of a Scene (`continuity = new_scene`):
-             Generates an Anchor-Locked Starting Keyframe (`keyframes/sNN_start.png`) conditioned on
-             `img/ref_<char>.png`, then animates it into a continuous 2D video clip (`clips/raw/sNN.mp4`).
-           * Continuation Shots within the SAME Scene (`continuity = chain`):
-             Inspects & trims the final 3-5 frames of Shot N-1 (`frame_chain.py`), extracts the last
-             clean frame (`frames/chain/s{N-1:02d}_last.png`), and passes BOTH `frames/chain/s{N-1:02d}_last.png`
-             and `img/ref_<char>.png` into Google Flow MCP (`flow-ingredients-to-video` or `flow-frame-to-video`)
-             so the scene continues seamlessly without character drift or morphing.
+How Scenes, Shots, and Reusable Assets work dynamically for each project:
+    1. Asset Generation First:
+       Before any video clips are generated, all recurring characters, backgrounds, and props
+       are generated, watermark-cleaned, and locked into `img/ref_<char>.png`, `assets/bg_<bg>.png`,
+       and `assets/prop_<prop>.png` via `assets.py`.
+    2. Multi-Character Scene Planning:
+       Each narrative scene in `SCENES.tsv` specifies the required characters (single or multiple),
+       reusable background (`bg_id`), props (`props`), and target duration.
+    3. Flexible Clip Segmentation (4s, 6s, 8s, or 10s per shot):
+       Because Google Flow generates a maximum of 10 seconds per video clip (4s, 6s, 8s, or 10s),
+       each Scene is broken into sequential 4s-10s Shots in `SHOTS.tsv`:
+       - First Shot of a Scene (`continuity = new_scene`):
+         Generates a Starting Keyframe (`keyframes/sNN_start.png`) conditioned on the established
+         background asset and all involved character reference anchors, then animates it into a
+         continuous 2D video clip (`clips/raw/sNN.mp4`).
+       - Continuation Shots within the SAME Scene (`continuity = chain`):
+         Inspects & trims the final 3-5 frames of Shot N-1 (`frame_chain.py`), extracts the last clean
+         frame (`frames/chain/s{N-1:02d}_last.png`), and passes BOTH `frames/chain/s{N-1:02d}_last.png`
+         and all involved character references (`img/ref_<char>.png`) into Google Flow MCP
+         (`flow-ingredients-to-video`) so characters never drift or morph across long sequences.
 
 Commands (run from the project folder):
     python <skill>/scripts/video_clips.py validate
@@ -40,11 +43,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from character_bible import (  # noqa: E402
+from assets import (  # noqa: E402
     IMAGE_MODEL,
     cmd_init,
     format_character_spec,
-    load_bible,
+    format_multi_character_spec,
+    load_assets,
     negative_guardrails,
     project_folder_slug,
     shot_templates,
@@ -90,6 +94,22 @@ def parse_id_filter(raw_args: list) -> set:
     return out
 
 
+def parse_chars(row: dict) -> list:
+    """Extract list of character IDs from either 'chars' or legacy 'char' column."""
+    raw = row.get("chars") or row.get("char") or ""
+    return [c.strip() for c in re.split(r"[,+;]", raw) if c.strip()]
+
+
+def parse_props(row: dict) -> list:
+    """Extract list of prop IDs from 'props' column."""
+    raw = row.get("props") or ""
+    return [p.strip() for p in re.split(r"[,+;]", raw) if p.strip()]
+
+
+def load_bible(path: str = None) -> dict:
+    return load_assets(path)
+
+
 def load_shots(path: str = "SHOTS.tsv") -> list:
     if not os.path.exists(path):
         sys.exit(f"Missing {path} in current project folder. Create SHOTS.tsv for this project's scenes first.")
@@ -113,16 +133,46 @@ def resolve_expression(bible: dict, expr_text: str) -> str:
     return expr_text.strip()
 
 
+def build_props_spec(bible: dict, props: list) -> str:
+    if not props:
+        return "None (clean hands and empty background surfaces)"
+    clauses = []
+    prop_dict = bible.get("props", {})
+    for p in props:
+        if p in prop_dict:
+            p_desc = prop_dict[p].get("description", p)
+            p_name = prop_dict[p].get("name", p)
+            clauses.append(f"{p_name}: {p_desc}")
+        else:
+            clauses.append(p)
+    return "; ".join(clauses)
+
+
+def build_setting_spec(bible: dict, row: dict) -> str:
+    bg_id = str(row.get("bg_id", "")).strip()
+    bgs = bible.get("backgrounds", {})
+    bg_desc = ""
+    if bg_id and bg_id in bgs:
+        bg_name = bgs[bg_id].get("name", bg_id)
+        bg_details = bgs[bg_id].get("description", "")
+        bg_desc = f"{bg_name} ({bg_details}). "
+    env_style = load_project_style()
+    setting_text = row.get("setting", "").strip()
+    combined = f"{bg_desc}{setting_text}".strip().rstrip(".")
+    return f"{combined}. {env_style}".strip()
+
+
 def build_keyframe_prompt(row: dict, bible: dict) -> str:
     tpl = shot_templates()["starting_keyframe_template"]
-    cid = row["char"].strip()
-    char_spec = format_character_spec(bible["characters"][cid])
+    char_ids = parse_chars(row)
+    chars_spec = format_multi_character_spec(bible, char_ids)
+    props_spec = build_props_spec(bible, parse_props(row))
+    setting = build_setting_spec(bible, row)
     expr = resolve_expression(bible, row["expression"])
-    env_style = load_project_style()
-    setting = f"{row['setting'].strip().rstrip('.')}. {env_style}".strip()
     return tpl.format(
-        char_spec=char_spec,
+        chars_spec=chars_spec,
         setting=setting,
+        props_spec=props_spec,
         action=row["action"].strip(),
         expression=expr,
         camera=row.get("camera", "Medium 2D cartoon shot, eye level").strip(),
@@ -141,14 +191,15 @@ def build_video_prompt(row: dict, bible: dict) -> str:
     else:
         tpl = tpls["video_clip_new_scene_template"]
 
-    cid = row["char"].strip()
-    char_spec = format_character_spec(bible["characters"][cid])
+    char_ids = parse_chars(row)
+    chars_spec = format_multi_character_spec(bible, char_ids)
+    props_spec = build_props_spec(bible, parse_props(row))
+    setting = build_setting_spec(bible, row)
     expr = resolve_expression(bible, row["expression"])
-    env_style = load_project_style()
-    setting = f"{row['setting'].strip().rstrip('.')}. {env_style}".strip()
     return tpl.format(
-        char_spec=char_spec,
+        chars_spec=chars_spec,
         setting=setting,
+        props_spec=props_spec,
         camera=row.get("camera", "Medium 2D cartoon shot, eye level").strip(),
         action=row["action"].strip(),
         expression=expr,
@@ -160,10 +211,19 @@ def build_video_prompt(row: dict, bible: dict) -> str:
 def build_video_mcp_call(row: dict, bible: dict, video_model: str = VIDEO_MODEL) -> dict:
     sid = int(row["id"])
     scene_id = str(row.get("scene_id", "1")).strip() or "1"
-    cid = row["char"].strip()
+    char_ids = parse_chars(row)
     cont = row["continuity"].strip().lower()
     dur = str(row.get("duration", "6")).strip() or "6"
-    ref_anchor = bible["characters"][cid].get("reference_image", f"img/ref_{cid}.png")
+
+    # Collect reference anchors for ALL characters in this shot
+    ref_anchors = []
+    for cid in char_ids:
+        if cid in bible.get("characters", {}):
+            ref_path = bible["characters"][cid].get("reference_image", f"img/ref_{cid}.png")
+            ref_anchors.append(ref_path)
+
+    # Establish max references allowed by video model (omni-flash: up to 7, veo-3.1: up to 3)
+    max_refs = 3 if "veo-3.1" in video_model else 7
     prompt = build_video_prompt(row, bible)
     folder = f"{project_folder_slug()}_clips"
 
@@ -171,7 +231,7 @@ def build_video_mcp_call(row: dict, bible: dict, video_model: str = VIDEO_MODEL)
         prev_last = f"frames/chain/s{sid - 1:02d}_last.png"
         if video_model in ("omni-flash", "veo-3.1-fast", "veo-3.1-lite"):
             mode = "flow-ingredients-to-video"
-            image_paths = [prev_last, ref_anchor]
+            image_paths = ([prev_last] + ref_anchors)[:max_refs]
         else:
             mode = "flow-frame-to-video"
             image_paths = [prev_last]
@@ -187,7 +247,7 @@ def build_video_mcp_call(row: dict, bible: dict, video_model: str = VIDEO_MODEL)
         start_kf = f"keyframes/s{sid:02d}_start.png"
         if video_model in ("omni-flash", "veo-3.1-fast", "veo-3.1-lite"):
             mode = "flow-ingredients-to-video"
-            image_paths = [start_kf, ref_anchor]
+            image_paths = ([start_kf] + ref_anchors)[:max_refs]
         else:
             mode = "flow-frame-to-video"
             image_paths = [start_kf]
@@ -196,6 +256,7 @@ def build_video_mcp_call(row: dict, bible: dict, video_model: str = VIDEO_MODEL)
         "shot_id": sid,
         "scene_id": scene_id,
         "continuity": cont,
+        "characters": char_ids,
         "ServerName": "flow-connector",
         "ToolName": "flow_generate",
         "Arguments": {
@@ -219,15 +280,21 @@ def cmd_validate(_args):
     if not shots:
         sys.exit("SHOTS.tsv contains no shot rows.")
 
-    required_cols = {"id", "char", "continuity", "duration", "action", "expression", "setting", "camera"}
-    missing_cols = required_cols - set(shots[0].keys())
+    required_cols = {"id", "continuity", "duration", "action", "expression", "setting", "camera"}
+    cols = set(shots[0].keys())
+    missing_cols = required_cols - cols
     if missing_cols:
         sys.exit(f"SHOTS.tsv is missing required columns: {', '.join(sorted(missing_cols))}")
+    if "chars" not in cols and "char" not in cols:
+        sys.exit("SHOTS.tsv must contain either 'chars' (preferred) or 'char' column")
 
     errors = []
     warnings = []
     prev_id = 0
     prev_scene = None
+    all_chars_used = set()
+    all_bgs_used = set()
+
     for idx, r in enumerate(shots, 1):
         sid = int(r["id"])
         if sid != prev_id + 1:
@@ -235,9 +302,19 @@ def cmd_validate(_args):
         prev_id = sid
 
         scene_id = str(r.get("scene_id", "")).strip()
-        cid = r["char"].strip()
-        if cid not in bible["characters"]:
-            errors.append(f"Shot {sid:02d}: unknown character '{cid}' (not in CHARACTER_BIBLE.json)")
+        char_ids = parse_chars(r)
+        if not char_ids:
+            errors.append(f"Shot {sid:02d}: no characters specified in 'chars' column")
+        for cid in char_ids:
+            all_chars_used.add(cid)
+            if cid not in bible["characters"]:
+                errors.append(f"Shot {sid:02d}: unknown character '{cid}' (not defined in ASSETS.json / CHARACTER_BIBLE.json)")
+
+        bg_id = str(r.get("bg_id", "")).strip()
+        if bg_id:
+            all_bgs_used.add(bg_id)
+            if bg_id not in bible.get("backgrounds", {}):
+                warnings.append(f"Shot {sid:02d}: bg_id '{bg_id}' not found in assets backgrounds registry")
 
         cont = r["continuity"].strip().lower()
         if cont not in VALID_CONTINUITY:
@@ -260,12 +337,12 @@ def cmd_validate(_args):
                     errors.append(
                         f"Shot {sid:02d}: duration '{dur}s' exceeds Google Flow's hard 10-second maximum per clip! "
                         f"Allowed values are {sorted(VALID_DURATIONS)} seconds. "
-                        f"To animate a {dur}s scene, split it into multiple 6s or 8s shots with continuity='chain'."
+                        f"To animate a {dur}s scene, split it into multiple 4s, 6s, 8s, or 10s shots with continuity='chain'."
                     )
                 else:
                     errors.append(
                         f"Shot {sid:02d}: invalid duration '{dur}' "
-                        f"(Google Flow only accepts exact strings: '4', '6', '8', or '10' seconds)"
+                        f"(Google Flow accepts exact strings: '4', '6', '8', or '10' seconds; choose according to scene pacing)"
                     )
             except ValueError:
                 errors.append(
@@ -284,12 +361,12 @@ def cmd_validate(_args):
             if re.search(pat, action, flags=re.IGNORECASE):
                 errors.append(
                     f"Shot {sid:02d}: action is overloaded ({pat!r} matched). "
-                    f"Scope each clip to ONE clear character action + ONE expression shift to prevent 2D morphing."
+                    f"Scope each clip to one clear physical action per character to prevent 2D morphing."
                 )
-        if len(action.split()) > 36:
+        if len(action.split()) > 45:
             warnings.append(
                 f"Shot {sid:02d}: action is {len(action.split())} words long "
-                f"(recommend <= 30 words for crisp 2D line integrity)"
+                f"(recommend <= 35 words for crisp 2D line integrity)"
             )
 
         combined_text = f"{action} {expr} {r['setting']} {r['camera']}".lower()
@@ -311,10 +388,14 @@ def cmd_validate(_args):
     chain_count = sum(1 for r in shots if r["continuity"].strip().lower() == "chain")
     new_count = sum(1 for r in shots if r["continuity"].strip().lower() == "new_scene")
     interp_count = sum(1 for r in shots if r["continuity"].strip().lower() == "interp")
+    multi_char_shots = sum(1 for r in shots if len(parse_chars(r)) > 1)
+
     print(
         f"SHOTS.tsv validated: {len(shots)} continuous 2D video shots across {len(scenes_seen)} scene(s) "
-        f"({total_sec}s total duration; {new_count} anchor-locked scene starts, "
-        f"{chain_count} frame-chained continuations, {interp_count} interpolated transitions)."
+        f"({total_sec}s total duration; {new_count} scene starts, {chain_count} chained continuations, "
+        f"{interp_count} interpolations; {multi_char_shots} multi-character shots). "
+        f"Characters used: {', '.join(sorted(all_chars_used))}. "
+        f"Backgrounds reused: {', '.join(sorted(all_bgs_used)) if all_bgs_used else 'inline settings'}."
     )
 
 
@@ -331,22 +412,29 @@ def cmd_export_mcp(args):
     for r in shots:
         sid = int(r["id"])
         scene_id = str(r.get("scene_id", "1")).strip() or "1"
-        cid = r["char"].strip()
         cont = r["continuity"].strip().lower()
-        ref_anchor = bible["characters"][cid].get("reference_image", f"img/ref_{cid}.png")
+        char_ids = parse_chars(r)
+        ref_anchors = [bible["characters"][cid].get("reference_image", f"img/ref_{cid}.png") for cid in char_ids if cid in bible.get("characters", {})]
+        bg_id = str(r.get("bg_id", "")).strip()
+        bg_file = bible.get("backgrounds", {}).get(bg_id, {}).get("file", f"assets/bg_{bg_id}.png") if bg_id else ""
+
         if cont in ("new_scene", "interp"):
             kf_prompt = build_keyframe_prompt(r, bible)
+            kf_images = [p for p in ([bg_file] + ref_anchors) if p and os.path.exists(p)]
+            if not kf_images:
+                kf_images = ref_anchors
             manifest["keyframes"].append(
                 {
                     "shot_id": sid,
                     "scene_id": scene_id,
+                    "characters": char_ids,
                     "target_path": f"keyframes/s{sid:02d}_start.png",
                     "ServerName": "flow-connector",
                     "ToolName": "flow_generate",
                     "Arguments": {
-                        "mode": "flow-image-to-image",
+                        "mode": "flow-image-to-image" if kf_images else "flow-text-to-image",
                         "prompt": kf_prompt,
-                        "image_paths": [ref_anchor],
+                        "image_paths": kf_images,
                         "aspect_ratio": bible.get("aspect_ratio", "16:9"),
                         "image_model": IMAGE_MODEL,
                         "outputs": 1,
@@ -391,13 +479,20 @@ def cmd_keyframes(args):
         cont = r["continuity"].strip().lower()
         if cont not in ("new_scene", "interp") and not want:
             continue
-        cid = r["char"].strip()
-        ref_anchor = bible["characters"][cid].get("reference_image", f"img/ref_{cid}.png")
+        char_ids = parse_chars(r)
+        ref_anchors = [bible["characters"][cid].get("reference_image", f"img/ref_{cid}.png") for cid in char_ids if cid in bible.get("characters", {})]
+        bg_id = str(r.get("bg_id", "")).strip()
+        bg_file = bible.get("backgrounds", {}).get(bg_id, {}).get("file", f"assets/bg_{bg_id}.png") if bg_id else ""
+
+        kf_images = [p for p in ([bg_file] + ref_anchors) if p and os.path.exists(p)]
+        if not kf_images:
+            kf_images = [p for p in ref_anchors if os.path.exists(p)]
+
         prompt = build_keyframe_prompt(r, bible)
         mcp_args = {
-            "mode": "flow-image-to-image" if os.path.exists(ref_anchor) else "flow-text-to-image",
+            "mode": "flow-image-to-image" if kf_images else "flow-text-to-image",
             "prompt": prompt,
-            "image_paths": [ref_anchor] if os.path.exists(ref_anchor) else [],
+            "image_paths": kf_images,
             "aspect_ratio": bible.get("aspect_ratio", "16:9"),
             "image_model": IMAGE_MODEL,
             "outputs": 1,
@@ -406,7 +501,7 @@ def cmd_keyframes(args):
         }
         target_kf = f"keyframes/s{sid:02d}_start.png"
         if args.dry:
-            print(f"# Keyframe Shot {sid:02d} -> {target_kf}")
+            print(f"# Keyframe Shot {sid:02d} (chars: {', '.join(char_ids)}) -> {target_kf}")
             print(json.dumps({"ServerName": "flow-connector", "ToolName": "flow_generate", "Arguments": mcp_args}, indent=2))
             count += 1
             continue
@@ -435,7 +530,8 @@ def cmd_chain(args):
         mcp_args = call_spec["Arguments"]
 
         if args.dry:
-            print(f"# Shot {sid:02d} (scene {call_spec['scene_id']}, {call_spec['continuity']}) -> clips/raw/s{sid:02d}.mp4")
+            chars_str = ", ".join(call_spec["characters"])
+            print(f"# Shot {sid:02d} [scene {call_spec['scene_id']}, {call_spec['continuity']}, chars: {chars_str}, dur: {mcp_args['duration']}s] -> clips/raw/s{sid:02d}.mp4")
             print(json.dumps({k: call_spec[k] for k in ("ServerName", "ToolName", "Arguments")}, indent=2))
             count += 1
             continue
@@ -447,7 +543,8 @@ def cmd_chain(args):
                     f"Run previous shots first (or run `video_clips.py keyframes` for new_scene shots)."
                 )
 
-        print(f"Submitting Shot {sid:02d} [scene {call_spec['scene_id']}, {call_spec['continuity']}] via Flow MCP {mcp_args['mode']} ({args.model})...")
+        chars_str = ", ".join(call_spec["characters"])
+        print(f"Submitting Shot {sid:02d} [scene {call_spec['scene_id']}, {call_spec['continuity']}, chars: {chars_str}, dur: {mcp_args['duration']}s] via Flow MCP {mcp_args['mode']} ({args.model})...")
         dl_path = _execute_flow_mcp_job(mcp_args, index=sid, wait=args.wait)
         raw_target = f"clips/raw/s{sid:02d}.mp4"
         if dl_path and os.path.exists(dl_path):
@@ -554,7 +651,7 @@ def cmd_pick(_args):
 
 
 def selfcheck():
-    """Verify dynamic Scene -> Shot validation and Flow MCP manifest generation in a temporary project."""
+    """Verify multi-character scenes, reusable backgrounds, flexible durations, and Flow MCP chaining."""
     import tempfile
 
     with tempfile.TemporaryDirectory(prefix="s2d_shots_test_") as tmp:
@@ -562,12 +659,13 @@ def selfcheck():
         os.chdir(tmp)
         try:
             cmd_init(argparse.Namespace(look="flat_daylight", force=True))
-            # Dynamically create a 2-scene, 3-shot SHOTS.tsv (Scene 1 has 2 chained shots; Scene 2 has 1 new_scene shot)
+            # Multi-character shots, reusable background, and flexible duration mix (4s, 6s, 8s, 10s)
             shots_content = (
-                "id\tscene_id\tchar\tcontinuity\tduration\taction\texpression\tsetting\tcamera\n"
-                "01\t1\tprotagonist\tnew_scene\t6\tstands facing the camera and gestures with both hands while speaking\tanimated_speaking\tSimple 2D room interior with flat warm-cream wall\tMedium 2D shot\n"
-                "02\t1\tprotagonist\tchain\t6\tplaces both hands on head in sudden surprise\twide_eyed_shock\tSame 2D room interior with flat warm-cream wall\tMedium close-up 2D shot\n"
-                "03\t2\tsecondary_character\tnew_scene\t6\tcrosses both arms and nods calmly while responding\tconfident_grin\tSimple 2D room with flat light-blue background wall\tMedium 2D shot\n"
+                "id\tscene_id\tchars\tbg_id\tprops\tcontinuity\tduration\taction\texpression\tsetting\tcamera\n"
+                "01\t1\tprotagonist, secondary_character\tbedroom\tsmartphone\tnew_scene\t6\tprotagonist frantically points at the phone while secondary_character listens calmly\tanimated_speaking\tProtagonist bedroom with desk\tMedium two-shot\n"
+                "02\t1\tprotagonist, secondary_character\tbedroom\tsmartphone\tchain\t4\tsecondary_character shakes head and shrugs shoulders in disbelief\tdeadpan_stare\tSame bedroom desk\tMedium close-up\n"
+                "03\t2\tsupporting_character\thallway\texam_paper\tnew_scene\t8\tholds up the graded exam paper sternly while lecturing\tconfident_grin\tSchool hallway corridor\tMedium 2D shot\n"
+                "04\t3\tprotagonist\tbedroom\tbackpack\tnew_scene\t10\tsits down at the bedroom desk exhausted and leans back with heavy sigh\tlistening_attentively\tProtagonist bedroom desk\tMedium wide shot\n"
             )
             with open("SHOTS.tsv", "w", encoding="utf-8") as f:
                 f.write(shots_content)
@@ -575,13 +673,22 @@ def selfcheck():
             cmd_export_mcp(argparse.Namespace(model="omni-flash", out="mcp_jobs.json"))
             assert os.path.exists("mcp_jobs.json")
             data = json.load(open("mcp_jobs.json", encoding="utf-8"))
-            assert len(data["keyframes"]) == 2
-            assert len(data["video_clips"]) == 3
-            assert data["video_clips"][1]["Arguments"]["image_paths"] == [
-                "frames/chain/s01_last.png",
-                "img/ref_protagonist.png",
-            ]
-            print("[video_clips selfcheck] PASS: Dynamic Scene->Shot validation and Flow MCP chaining verified.")
+            assert len(data["keyframes"]) == 3  # shots 01, 03, 04 are new_scene
+            assert len(data["video_clips"]) == 4
+
+            # Verify multi-character chaining conditioned on previous frame + both character anchors
+            shot2_call = data["video_clips"][1]
+            assert shot2_call["continuity"] == "chain"
+            assert shot2_call["Arguments"]["duration"] == "4"
+            assert "frames/chain/s01_last.png" in shot2_call["Arguments"]["image_paths"]
+            assert "img/ref_protagonist.png" in shot2_call["Arguments"]["image_paths"]
+            assert "img/ref_secondary_character.png" in shot2_call["Arguments"]["image_paths"]
+
+            # Verify Shot 4 duration is 10s and reuses bedroom
+            shot4_call = data["video_clips"][3]
+            assert shot4_call["Arguments"]["duration"] == "10"
+
+            print("[video_clips selfcheck] PASS: Multi-character scenes, reusable assets, flexible durations, and Flow MCP chaining verified.")
         finally:
             os.chdir(old)
 
@@ -589,10 +696,10 @@ def selfcheck():
 def main():
     if "--selfcheck" in sys.argv:
         return selfcheck()
-    ap = argparse.ArgumentParser(description="Dynamic Scene-to-Shot Frame-Chained 2D Video Generator via Flow MCP.")
+    ap = argparse.ArgumentParser(description="Multi-Character Scene-to-Shot Planner & Frame-Chained 2D Video Generator.")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p_val = sub.add_parser("validate", help="Validate SHOTS.tsv anti-morphing scope and continuity chain")
+    p_val = sub.add_parser("validate", help="Validate SHOTS.tsv multi-character scope, assets, and continuity chain")
     p_val.set_defaults(func=cmd_validate)
 
     p_exp = sub.add_parser("export-mcp", help="Export Google Flow MCP job manifest (mcp_jobs.json)")

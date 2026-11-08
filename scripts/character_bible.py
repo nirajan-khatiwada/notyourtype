@@ -64,26 +64,53 @@ def project_folder_slug() -> str:
     return f"s2d_{slug or 'project'}"
 
 
-def load_bible(path: str = "CHARACTER_BIBLE.json") -> dict:
-    if not os.path.exists(path):
-        sys.exit(f"Missing {path}. Run: python <skill>/scripts/character_bible.py init")
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+def load_bible(path: str = None) -> dict:
+    candidates = [path] if path else ["CHARACTER_BIBLE.json", "ASSETS.json"]
+    for c in candidates:
+        if c and os.path.exists(c):
+            with open(c, encoding="utf-8") as f:
+                data = json.load(f)
+            data.setdefault("characters", {})
+            data.setdefault("backgrounds", {})
+            data.setdefault("props", {})
+            data.setdefault("expression_presets", {})
+            return data
+    sys.exit("Missing CHARACTER_BIBLE.json (or ASSETS.json). Run: python <skill>/scripts/character_bible.py init")
 
 
 def format_character_spec(char_obj: dict) -> str:
     """Compile a character's immutable visual anchor specification into a single dense prompt clause."""
     name = char_obj.get("display_name", char_obj.get("id", "Character"))
     role = char_obj.get("role", "2D cartoon character")
-    head = char_obj["head_and_face"].strip().rstrip(".")
-    hair = char_obj["hair_silhouette"].strip().rstrip(".")
-    outfit = char_obj["outfit"].strip().rstrip(".")
-    props = char_obj["proportions"].strip().rstrip(".")
+    head = char_obj.get("head_and_face", "").strip().rstrip(".")
+    hair = char_obj.get("hair_silhouette", "").strip().rstrip(".")
+    outfit = char_obj.get("outfit", "").strip().rstrip(".")
+    props = char_obj.get("proportions", "").strip().rstrip(".")
     return (
         f"{name} ({role}): {props}. Head & Face: {head}. "
         f"Signature Hair Silhouette: {hair}. "
         f"Signature Solid-Color Outfit: {outfit}."
     )
+
+
+def format_multi_character_spec(bible: dict, char_ids: list) -> str:
+    """Compile multiple character specifications with distinct identities and positioning guidelines."""
+    chars = bible.get("characters", {})
+    clauses = []
+    for idx, cid in enumerate(char_ids, 1):
+        if cid in chars:
+            c = chars[cid]
+            spec = format_character_spec(c)
+            clauses.append(f"[Character {idx}] {spec}")
+        else:
+            clauses.append(f"[Character {idx}] {cid} (2D cel-shaded cartoon character)")
+    summary = " ".join(clauses)
+    if len(char_ids) > 1:
+        summary += (
+            " Maintain distinct identity, facial features, hair silhouette, and outfit color "
+            "for each character. Do not blend, merge, or cross-pollinate character features."
+        )
+    return summary
 
 
 def build_master_sheet_prompt(bible: dict, char_ids=None) -> str:
@@ -118,14 +145,22 @@ def cmd_init(args):
             f"flat_daylight, warm_interior, high_contrast_focus, minimal_backdrop"
         )
 
-    for d in ("img", "keyframes", "clips/raw", "clips/clean", "clips/norm", "frames/chain", "frames/qc"):
+    for d in ("img", "assets", "keyframes", "clips/raw", "clips/clean", "clips/norm", "frames/chain", "frames/qc"):
         os.makedirs(d, exist_ok=True)
 
+    src_json = os.path.join(PROMPTS_DIR, "assets.json")
+    if not os.path.exists(src_json):
+        src_json = os.path.join(PROMPTS_DIR, "character_bible.json")
+
     if not os.path.exists("CHARACTER_BIBLE.json") or args.force:
-        shutil.copy(os.path.join(PROMPTS_DIR, "character_bible.json"), "CHARACTER_BIBLE.json")
+        shutil.copy(src_json, "CHARACTER_BIBLE.json")
         print("Created CHARACTER_BIBLE.json")
     else:
         print("CHARACTER_BIBLE.json already exists (use --force to overwrite)")
+
+    if not os.path.exists("ASSETS.json") or args.force:
+        shutil.copy(src_json, "ASSETS.json")
+        print("Created ASSETS.json")
 
     if not os.path.exists("STYLE.txt") or args.force:
         raw_look = open(look_file, encoding="utf-8").read().splitlines()

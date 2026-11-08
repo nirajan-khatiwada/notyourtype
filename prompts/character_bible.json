@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "style_preset": "2d_cel_storytime_animation",
   "aspect_ratio": "16:9",
   "target_fps": 30,
@@ -58,12 +58,55 @@
       ]
     }
   },
+  "backgrounds": {
+    "bedroom": {
+      "id": "bedroom",
+      "name": "Protagonist's Bedroom",
+      "description": "Simple 2D cartoon bedroom interior with flat pastel-yellow walls, a clean wooden desk with a lamp, a simple bookshelf with solid color books, and a window with flat daylight view. Bold black ink outlines, clean cel-shaded planes, completely empty of people.",
+      "file": "assets/bg_bedroom.png"
+    },
+    "hallway": {
+      "id": "hallway",
+      "name": "School / College Hallway",
+      "description": "2D cartoon institutional corridor with flat light-cyan walls, a row of simple dark-blue student lockers, flat polished floor, and classroom doors with black outlines. Wide angle, clean and empty of people.",
+      "file": "assets/bg_hallway.png"
+    },
+    "classroom": {
+      "id": "classroom",
+      "name": "Classroom",
+      "description": "2D cartoon lecture classroom with a large dark chalkboard, teacher's podium, simple wooden desks in rows, and large classroom windows. Flat cel-shaded colors, clean black ink lines, empty of people.",
+      "file": "assets/bg_classroom.png"
+    }
+  },
+  "props": {
+    "smartphone": {
+      "id": "smartphone",
+      "name": "Smartphone",
+      "description": "Flat 2D rectangular black cartoon smartphone with rounded corners, a glowing cyan cartoon screen with clean message bubbles, bold black ink outline.",
+      "file": "assets/prop_smartphone.png"
+    },
+    "exam_paper": {
+      "id": "exam_paper",
+      "name": "Exam Paper",
+      "description": "Flat white 2D cartoon test sheet with horizontal black text lines and a bold bright-red letter grade marked at the top corner with clean ink outline.",
+      "file": "assets/prop_exam_paper.png"
+    },
+    "backpack": {
+      "id": "backpack",
+      "name": "Backpack",
+      "description": "Solid bright-orange 2D cartoon canvas backpack with simple zipper pockets, black straps, zero logos or text, clean black ink outline.",
+      "file": "assets/prop_backpack.png"
+    }
+  },
   "expression_presets": {
     "animated_speaking": "wide expressive cartoon eyes, eyebrows moving dynamically, 2D mouth opening and closing actively in speech with expressive hand gestures",
     "comedic_rage": "bulging wide cartoon eyes, jagged shouting cartoon mouth, cartoon anger vein mark on forehead, both fists clenched and shaking",
     "panic_sweat": "huge wide white cartoon eyes with tiny pinpoint black pupils, wavy screaming mouth, visible blue cartoon sweat drops around head, both hands clutching head",
     "deadpan_stare": "half-lidded flat unimpressed cartoon eyes, straight horizontal line mouth, completely still posture for comedic timing",
     "confident_grin": "one eyebrow raised high, wide confident sideways cartoon smirk, pointing thumb proudly at chest",
-    "wide_eyed_shock": "eyes popping wide, cartoon jaw dropping low in surprise, hands raised mid-air"
+    "wide_eyed_shock": "eyes popping wide, cartoon jaw dropping low in surprise, hands raised mid-air",
+    "nervous_chuckle": "awkward crooked smile with visible teeth, eyes darting sideways, one hand rubbing back of neck with small sweat drop",
+    "suspicious_glance": "squinting narrow eyes looking sideways at the other character, one raised eyebrow, skeptical pursed lips",
+    "listening_attentively": "neutral attentive cartoon eyes, slight gentle head nod, mouth closed calmly, arms relaxed"
   }
 }

@@ -1,8 +1,17 @@
 # 2D Storytime Character Video Animation Skill (`not-your-type`)
 
-A standalone **Antigravity Skill** that generates complete **2D cel-shaded storytime cartoon videos** end to end using **Google Flow MCP (`flow-connector`)** and **FFmpeg**.
+A standalone **Antigravity Skill** that plans, generates, and assembles complete **2D cel-shaded storytime cartoon videos** end to end using **Google Flow MCP (`flow-connector`)** and **FFmpeg**.
 
-Because Google Flow generates a **maximum of 10 seconds per video clip** (`4s`, `6s`, `8s`, or `10s`), this skill automatically splits your story into sequential `6s`–`10s` animated shots, locks a **Master Character Reference Anchor**, chains each clip from the **last clean frame of the previous clip**, trims tail-end morphing, and stitches all normalized `1080p` clips into a single master `.mp4`.
+---
+
+## Core Refined Capabilities
+
+1. **Character Planning:** Before generating any visual assets or video clips, the skill actively asks how many recurring characters are required and collects each character's name, role, and visual description (facial features, hairstyle silhouette, solid outfit colors, proportions).
+2. **Multiple Characters in Any Scene:** Scenes and shots are never limited to one character. Supports single or multi-character scenes with flexible staging, positioning, and continuous 2D interactions.
+3. **Strict Character Consistency:** All characters maintain 100% visual identity (hair, clothing, facial features, proportions) across every frame and clip by conditioning directly on established reference anchors (`img/ref_<char>.png`).
+4. **Asset Generation First:** Reusable visual assets—including recurring characters, background environments (`assets/bg_<id>.png`), and props (`assets/prop_<id>.png`)—are planned, generated, and watermark-cleaned *first* before generating any video clips.
+5. **Scene Planning & Asset Reuse:** Every scene maps required characters, background assets (`bg_id`), props (`props`), and character interactions. Returning to a previous location reuses that exact background asset.
+6. **Flexible Clip Durations (4s, 6s, 8s, or 10s — Never Fixed to 6s):** Google Flow video clips can be `4`, `6`, `8`, or `10` seconds per shot. You can choose and mix clip durations according to the narrative pacing (e.g. 4s for quick punchlines/shocks, 6s/8s for standard dialogue, 10s for long monologues).
 
 ---
 
@@ -13,10 +22,10 @@ The skill is installed in your global Antigravity skills folder:
 ```text
 C:\Users\Nirajan\.gemini\config\skills\not-your-type\
 ```
-*(If setting up on a new machine, copy this folder into `C:\Users\<YourUsername>\.gemini\config\skills\not-your-type\`.)*
+*(Mirrored in `C:\Users\Nirajan\.claude\skills\not-your-type\` and version-controlled at `https://github.com/nirajan-khatiwada/notyourtype.git`.)*
 
 ### Prerequisites Check
-1. **Google Flow Browser Tab:** Open `https://flow.google.com` in Chrome or Edge, sign in to your Google account, and keep the tab **visible on screen** (not minimized) with the **Flow Connector** extension enabled.
+1. **Google Flow Browser Tab:** Open `https://flow.google.com` in Chrome or Edge, sign in to your Google account, and keep the tab **visible on screen** with the **Flow Connector** extension enabled.
 2. **One-Time Setup Verification:**
    In Antigravity chat, type:
    ```text
@@ -24,10 +33,12 @@ C:\Users\Nirajan\.gemini\config\skills\not-your-type\
    ```
    Or run the self-checks manually in PowerShell:
    ```powershell
-   python C:\Users\Nirajan\.gemini\config\skills\not-your-type\scripts\delama_video.py --selfcheck
-   python C:\Users\Nirajan\.gemini\config\skills\not-your-type\scripts\character_bible.py --selfcheck
-   python C:\Users\Nirajan\.gemini\config\skills\not-your-type\scripts\frame_chain.py --selfcheck
-   python C:\Users\Nirajan\.gemini\config\skills\not-your-type\scripts\assemble.py --selfcheck
+   python scripts/delama_video.py --selfcheck
+   python scripts/assets.py --selfcheck
+   python scripts/character_bible.py --selfcheck
+   python scripts/video_clips.py --selfcheck
+   python scripts/frame_chain.py --selfcheck
+   python scripts/assemble.py --selfcheck
    ```
 
 ---
@@ -41,51 +52,56 @@ Open any chat in Antigravity and type any of these trigger phrases:
 - `make a 2d storytime video`
 - `not your type continue` *(resumes your most recent project where it left off)*
 
-### Step 2 — Answer the 3 Startup Questions
-When you say `create a not your type` (without specifying details yet), the agent will immediately ask you **only 3 things in one short message**:
+### Step 2 — Answer the Startup & Character Planning Questions
+When you trigger the skill, the agent will ask:
 
-> 1. **Title / Topic:** What is the story or topic? *(Or say "suggest topics" for 10 storytime ideas)*
-> 2. **Language:** Which language should the script/story be in? *(Hindi, Hinglish, English, or any other language)*
-> 3. **Length:** How long should the full video be? *(e.g., 30 seconds, 1 minute, 2 minutes, 5 minutes — automatically segmented into 6s–10s chained Flow MCP video clips)*
+> 1. **Title / Topic:** What is the story title or topic? *(Or say "suggest topics" for 10 ideas)*
+> 2. **Language:** Which language should the script/story be in? *(Hindi, Hinglish, English, etc.)*
+> 3. **Length & Pacing:** Target video duration? *(e.g., 30s, 1m, 2m — segmented into 4s, 6s, 8s, or 10s clips)*
+> 4. **Character Planning:** How many recurring characters are required, and what are their names, roles, and visual descriptions? *(If you want suggestions, the agent will propose a tailored 2–3 character cast!)*
 
 ### Step 3 — Reply with Your Input
-You simply reply in one line, for example:
-- `"Title: Last Bench in School, Language: Hinglish, Length: 1 minute"`
-- Or give all three directly right from the start:
-  `"create a not your type video on Night Before Exam in Hindi, 2 minutes"`
+You simply reply with your details:
+- `"Title: Roommate Drama, Language: Hinglish, Length: 1 minute. Characters: Alex (lead, messy black hair, red hoodie) and Rahul (roommate, curly hair, glasses, blue shirt)."`
+- Or provide everything in one trigger prompt:
+  `"create a not your type video on Late Night Study in English, 1 minute, 2 characters"`
 
 ---
 
-## 3. What Happens Next (Dynamic Scene → Shot Generation Per Project)
+## 3. The 4-Stage Execution Pipeline
 
-Every time you give a **Title, Language, and Length**, the agent creates a new project folder (`~/Storytime2D/<project-slug>/`) and **dynamically generates the Scenes (`SCENES.tsv`) and Shots (`SHOTS.tsv`) specifically for your story**:
+Every project creates an isolated project workspace (`~/Storytime2D/<project-slug>/`):
 
-| Stage | What the Agent Creates Dynamically for Your Project | What You Do |
+| Stage | What the Pipeline Generates | What You Do |
 | :--- | :--- | :--- |
-| **1. Script & Dynamic Scene/Shot Plan** | • Writes `SCRIPT.md` for your topic and language.<br>• Creates `SCENES.tsv` breaking the story into scenes.<br>• Creates `SHOTS.tsv` breaking **each scene** into `6s`–`10s` animated video shots (since Flow's max per clip is 10s):<br>  - **Shot 1 of each Scene (`new_scene`)**: Starts the scene.<br>  - **Shots 2, 3... of the same Scene (`chain`)**: Continues seamlessly from the previous shot's last frame. | **Approve the script** (say `"OK"` or ask for edits). |
-| **2. Master Character Anchor** | Creates `CHARACTER_BIBLE.json` for your story's characters and generates each **Master Character Reference Image** (`img/ref_<char>.png`) via Flow MCP (`flow-text-to-image`) with bold black ink outlines, flat solid colors, and zero watermark. | **Confirm the character look** (or proceed automatically). |
-| **3. Frame-Chained Video Clips** | Generates each `6s`–`10s` shot sequentially via Flow MCP (`flow_generate`):<br>• **First Shot of a Scene (`new_scene`)**: Generates the scene starting keyframe (`keyframes/sNN_start.png`) anchored to `img/ref_<char>.png`, then animates it into a continuous 2D video clip (`clips/raw/sNN.mp4`).<br>• **Continuation Shot `N` in that Scene (`chain`)**: Trims the final 3–5 frames of Shot `N-1`, extracts `frames/chain/s{N-1:02d}_last.png`, and passes it + `img/ref_<char>.png` into Flow MCP so the character and scene continue without morphing. | Agent runs this automatically and checks `review.jpg`. |
-| **4. Stitch & Final MP4** | Cleans corner watermarks (`delama_video.py`), normalizes all clips to `1920x1080` (`16:9`, `30fps`), stitches them seamlessly via FFmpeg (`assemble.py`), verifies `qc.jpg`, and gives you the final `.mp4` path. | **Watch your finished `.mp4` video!** |
+| **Stage 1: Asset Generation First (`assets.py`)** | • Writes `SCRIPT.md` based on your topic and length.<br>• Creates `ASSETS.json` establishing recurring characters, unique backgrounds (`bedroom`, `hallway`), and props (`smartphone`, `backpack`).<br>• Generates and watermark-cleans all character anchors (`img/ref_<char>.png`), backgrounds (`assets/bg_<id>.png`), and props (`assets/prop_<id>.png`) via Flow MCP. | Review & confirm script and character/asset visual anchors. |
+| **Stage 2: Scene & Multi-Character Shot Planning (`video_clips.py`)** | • Creates `SCENES.tsv` defining narrative scenes with assigned characters, background asset IDs, and props.<br>• Creates `SHOTS.tsv` dividing each scene into sequential `4s`–`10s` shots with single or multi-character actions and expression shifts. | Review scene breakdown and shot flow. |
+| **Stage 3: Frame-Chained Video Generation via Flow MCP** | • **Scene Start Shot (`new_scene`)**: Generates scene starting keyframe (`keyframes/sNN_start.png`) conditioned on the background asset and all involved character anchors, then animates it into `clips/raw/sNN.mp4`.<br>• **Continuation Shot `N` in that Scene (`chain`)**: Trims final 3–5 frames of Shot `N-1` (`frame_chain.py`), extracts `frames/chain/s{N-1:02d}_last.png`, and conditions Flow MCP on **both** the last clean frame and all active character anchors so identities and settings remain 100% consistent without morphing. | Agent runs Flow MCP jobs and builds `review.jpg`. |
+| **Stage 4: Normalization, FFmpeg Stitching & QC (`assemble.py`)** | Cleans corner watermarks (`delama_video.py`), normalizes all clips to `1920x1080` (`16:9`, `30fps`, `yuv420p`), seamlessly stitches them via FFmpeg into `<project>.mp4`, and compiles 3-point visual QC contact sheet `qc.jpg`. | **Watch your completed master video!** |
 
 ---
 
-## 4. Skill Repository Structure
-
-*(Note: `SCRIPT.md`, `SCENES.tsv`, `SHOTS.tsv`, and `mcp_jobs.json` are NOT stored in the skill repo—they are created dynamically inside `~/Storytime2D/<project-slug>/` for each new video you make.)*
+## 4. Repository Structure
 
 ```text
 not-your-type/
-├── README.md                     # This quickstart & Antigravity usage guide
-├── SKILL.md                      # Main Antigravity skill instructions & interactive startup flow
-├── PLAYBOOK.md                   # Complete architecture, 2D cel-shaded style rules, and Flow MCP reference
-├── SETUP.md                      # Environment verification runbook
+├── README.md                     # This documentation & quickstart guide
+├── SKILL.md                      # Antigravity skill instructions & interactive startup protocol
+├── PLAYBOOK.md                   # Complete architectural specification & 2D cel-shaded rules
+├── SETUP.md                      # Setup and verification runbook
 ├── SETUP_STATUS.md               # Machine verification status
-├── prompts/                      # Hardcoded 2D cel-shaded style lock, anti-morphing guardrails & JSON schemas
-├── looks/                        # Reusable 2D background environment palettes
+├── prompts/                      # 2D style lock, anti-morphing guardrails, assets & shot templates
+│   ├── assets.json               # Reusable characters, backgrounds & props schema
+│   ├── character_bible.json      # Character Bible specification
+│   ├── shot_templates.json       # Multi-character prompts & asset-first templates
+│   ├── style_lock.txt            # Objective 2D cel-shaded visual rules
+│   └── negative_guardrails.txt   # Anti-3D and anti-morphing negative constraints
+├── looks/                        # 2D cel-shaded background environment lighting styles
 └── scripts/                      # Standalone Python + FFmpeg pipeline scripts
+    ├── assets.py                 # Asset Generation First manager (characters, backgrounds, props)
     ├── character_bible.py        # Character Bible & Master Reference Anchor generator
-    ├── frame_chain.py            # Anti-morphing tail trimmer (3-5 frames) & last-clean-frame extractor
-    ├── video_clips.py            # Dynamic Scene->Shot validator & frame-chained Flow MCP video generator
-    ├── delama_video.py           # Image & video corner watermark remover
+    ├── frame_chain.py            # Anti-morphing tail-trimmer (3-5 frames) & last clean frame extractor
+    ├── video_clips.py            # Multi-character Scene & Shot validator and Flow MCP video generator
+    ├── delama_video.py           # Image & video corner watermark cleaner
     └── assemble.py               # 1080p clip normalizer, FFmpeg stitcher & 3-point QC sheet builder
 ```

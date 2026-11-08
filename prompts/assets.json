@@ -1,0 +1,112 @@
+{
+  "schema_version": "2.0",
+  "style_preset": "2d_cel_storytime_animation",
+  "aspect_ratio": "16:9",
+  "target_fps": 30,
+  "resolution": "1920x1080",
+  "global_invariants": {
+    "art_style": "Hand-drawn digital 2D cel-shaded storytime cartoon animation with clean Flash/ToonBoom keyframe aesthetics",
+    "line_work": "Bold, clean, uniform-weight black ink outlines with crisp vector-like edges",
+    "color_and_shading": "Flat, vibrant solid colors with minimal hard-edge 1-step cel-shading; zero 3D volumetric lighting, zero photorealistic textures, zero gradients",
+    "proportions": "Simplified 2D cartoon proportions (~3.5 to 4 heads tall), rounded cartoon head geometry, clean 4-finger cartoon hands"
+  },
+  "characters": {
+    "protagonist": {
+      "id": "protagonist",
+      "display_name": "Protagonist",
+      "role": "Primary Storyteller / Lead Character",
+      "head_and_face": "Rounded bean-shaped 2D cartoon head, flat warm-cream cartoon skin fill, large expressive oval white cartoon eyes with crisp black ink outlines and solid black dot pupils, thick expressive floating black eyebrows, expressive 2D cartoon mouth with clean black outline, red tongue and white teeth block during speech",
+      "hair_silhouette": "Distinctive messy spiky jet-black 2D cartoon hair with three bold upward spikes at the crown and two sharp bangs dipping over the forehead; silhouette remains 100% identical from every angle",
+      "outfit": "Solid vibrant crimson-red pullover hoodie with a simple hood collar, zero logos, zero text, zero stripes, paired with solid dark charcoal-slate trousers and clean white flat 2D sneakers",
+      "proportions": "3.5-heads-tall simplified 2D cartoon character, medium slim cartoon build, expressive arms with 4-finger cartoon hands",
+      "reference_image": "img/ref_protagonist.png",
+      "forbidden_drift": [
+        "never change solid crimson-red hoodie color",
+        "never add text, patterns, or logos to clothing",
+        "never render realistic 3D facial shading",
+        "never alter spiky black hair silhouette"
+      ]
+    },
+    "secondary_character": {
+      "id": "secondary_character",
+      "display_name": "Secondary Character",
+      "role": "Companion / Conversation Partner",
+      "head_and_face": "Rounded 2D cartoon head in the exact same bold black ink line style, flat warm-cream cartoon skin fill, round black-framed cartoon glasses over expressive white cartoon eyes with black pupils, thick eyebrows, expressive 2D cartoon mouth",
+      "hair_silhouette": "Short wavy-top black 2D cartoon hair swept cleanly to the left side with bold black ink outline",
+      "outfit": "Solid bright teal crewneck t-shirt (flat solid teal fill, zero logos, zero text) with dark navy trousers",
+      "proportions": "3.5-heads-tall simplified 2D cartoon character matching the protagonist's exact scale and ink outline thickness",
+      "reference_image": "img/ref_secondary_character.png",
+      "forbidden_drift": [
+        "never remove black-framed round glasses",
+        "never change solid teal t-shirt color",
+        "never alter cartoon scale relative to protagonist"
+      ]
+    },
+    "supporting_character": {
+      "id": "supporting_character",
+      "display_name": "Supporting Character",
+      "role": "Authority Figure / Counterpart",
+      "head_and_face": "Slightly wider oval 2D cartoon head in the same bold black ink style, flat light-tan cartoon skin fill, rectangular thin-rimmed cartoon glasses, thick bushy eyebrows, stern expressive 2D cartoon mouth",
+      "hair_silhouette": "Short neatly parted dark-brown 2D cartoon hair with crisp black ink outline",
+      "outfit": "Solid mustard-yellow collared shirt with a solid dark-brown sweater vest, zero patterns, zero text, dark slate trousers",
+      "proportions": "3.8-heads-tall simplified 2D cartoon character with bold uniform black ink outlines",
+      "reference_image": "img/ref_supporting_character.png",
+      "forbidden_drift": [
+        "never remove rectangular glasses",
+        "never change solid mustard shirt and brown vest",
+        "never switch to realistic proportions"
+      ]
+    }
+  },
+  "backgrounds": {
+    "bedroom": {
+      "id": "bedroom",
+      "name": "Protagonist's Bedroom",
+      "description": "Simple 2D cartoon bedroom interior with flat pastel-yellow walls, a clean wooden desk with a lamp, a simple bookshelf with solid color books, and a window with flat daylight view. Bold black ink outlines, clean cel-shaded planes, completely empty of people.",
+      "file": "assets/bg_bedroom.png"
+    },
+    "hallway": {
+      "id": "hallway",
+      "name": "School / College Hallway",
+      "description": "2D cartoon institutional corridor with flat light-cyan walls, a row of simple dark-blue student lockers, flat polished floor, and classroom doors with black outlines. Wide angle, clean and empty of people.",
+      "file": "assets/bg_hallway.png"
+    },
+    "classroom": {
+      "id": "classroom",
+      "name": "Classroom",
+      "description": "2D cartoon lecture classroom with a large dark chalkboard, teacher's podium, simple wooden desks in rows, and large classroom windows. Flat cel-shaded colors, clean black ink lines, empty of people.",
+      "file": "assets/bg_classroom.png"
+    }
+  },
+  "props": {
+    "smartphone": {
+      "id": "smartphone",
+      "name": "Smartphone",
+      "description": "Flat 2D rectangular black cartoon smartphone with rounded corners, a glowing cyan cartoon screen with clean message bubbles, bold black ink outline.",
+      "file": "assets/prop_smartphone.png"
+    },
+    "exam_paper": {
+      "id": "exam_paper",
+      "name": "Exam Paper",
+      "description": "Flat white 2D cartoon test sheet with horizontal black text lines and a bold bright-red letter grade marked at the top corner with clean ink outline.",
+      "file": "assets/prop_exam_paper.png"
+    },
+    "backpack": {
+      "id": "backpack",
+      "name": "Backpack",
+      "description": "Solid bright-orange 2D cartoon canvas backpack with simple zipper pockets, black straps, zero logos or text, clean black ink outline.",
+      "file": "assets/prop_backpack.png"
+    }
+  },
+  "expression_presets": {
+    "animated_speaking": "wide expressive cartoon eyes, eyebrows moving dynamically, 2D mouth opening and closing actively in speech with expressive hand gestures",
+    "comedic_rage": "bulging wide cartoon eyes, jagged shouting cartoon mouth, cartoon anger vein mark on forehead, both fists clenched and shaking",
+    "panic_sweat": "huge wide white cartoon eyes with tiny pinpoint black pupils, wavy screaming mouth, visible blue cartoon sweat drops around head, both hands clutching head",
+    "deadpan_stare": "half-lidded flat unimpressed cartoon eyes, straight horizontal line mouth, completely still posture for comedic timing",
+    "confident_grin": "one eyebrow raised high, wide confident sideways cartoon smirk, pointing thumb proudly at chest",
+    "wide_eyed_shock": "eyes popping wide, cartoon jaw dropping low in surprise, hands raised mid-air",
+    "nervous_chuckle": "awkward crooked smile with visible teeth, eyes darting sideways, one hand rubbing back of neck with small sweat drop",
+    "suspicious_glance": "squinting narrow eyes looking sideways at the other character, one raised eyebrow, skeptical pursed lips",
+    "listening_attentively": "neutral attentive cartoon eyes, slight gentle head nod, mouth closed calmly, arms relaxed"
+  }
+}
